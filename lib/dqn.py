@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 
 class DQN:
@@ -8,37 +9,51 @@ class DQN:
         self.batch_size = batch_size
 
         # basic networke we're learning
-        self.input_t = tf.placeholder(tf.float32, shape=(self.batch_size, self.input_len), name="input")
+        self.input_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="input")
 
         # second net, we use to make a forecasts.
-        self.next_input_t = tf.placeholder(tf.float32, shape=(self.batch_size, self.input_len), name="next_input")
+        self.next_input_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="next_input")
+
+        self.qvals_t = self._make_network(self.input_t, is_trainable=True)
+        self.next_qvals_t = self._make_network(self.next_input_t, is_trainable=False)
 
     def __str__(self):
         return """DQN: input={input_len}, output={output_len}, batch={batch_size}
     input_t={input_t}
+    qvals_t={qvals_t}
     next_input_t={next_input_t}
+    next_qvals_t={next_qvals_t}
         """.format(input_len=self.input_len, output_len=self.output_len, batch_size=self.batch_size,
-                   input_t=self.input_t, next_input_t=self.next_input_t)
+                   input_t=self.input_t, next_input_t=self.next_input_t,
+                   qvals_t=self.qvals_t, next_qvals_t=self.next_qvals_t)
+
+    def calc_qvals(self, state):
+        dims = np.ndim(state)
+        if dims == 1:
+            state = [state]
+        qvals, = tf.get_default_session().run([self.next_qvals_t], feed_dict={
+            self.next_input_t: state
+        })
+        if dims == 1:
+            return qvals[0]
+        return qvals
+
+    def _make_network(self, input_tensor, is_trainable):
+        raise NotImplementedError
 
 
 class DenseDQN(DQN):
     def __init__(self, input_len, output_len, batch_size, neurons, dropout_keep_prob=0.5):
-        DQN.__init__(self, input_len, output_len, batch_size)
         self.neurons = neurons
         self.dropout_keep_prob = dropout_keep_prob
-
-        self.qvals_t = self._make_forward_net(self.input_t, is_trainable=True)
-        self.next_qvals_t = self._make_forward_net(self.next_input_t, is_trainable=False)
+        DQN.__init__(self, input_len, output_len, batch_size)
 
     def __str__(self):
         return DQN.__str__(self) + "\n" + \
         """DenseDQN: neurons={neurons}, dropout={dropout_keep_prob}
-    qvals_t={qvals_t}
-    next_qvals_t={next_qvals_t}
-        """.format(neurons=self.neurons, dropout_keep_prob=self.dropout_keep_prob,
-                   qvals_t=self.qvals_t, next_qvals_t=self.next_qvals_t)
+        """.format(neurons=self.neurons, dropout_keep_prob=self.dropout_keep_prob)
 
-    def _make_forward_net(self, input_t, is_trainable):
+    def _make_network(self, input_t, is_trainable):
         w_attrs = {'trainable': is_trainable, 'name': 'w'}
         b_attrs = {'trainable': is_trainable, 'name': 'b'}
 
