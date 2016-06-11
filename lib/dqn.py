@@ -3,19 +3,20 @@ import numpy as np
 
 
 class DQN:
-    def __init__(self, input_len, output_len, batch_size):
+    def __init__(self, input_len, output_len, batch_size, gamma_initial = 0.99):
         self.input_len = input_len
         self.output_len = output_len
         self.batch_size = batch_size
+        self.gamma_t = tf.Variable(initial_value=gamma_initial, trainable=False, dtype=tf.float32)
 
-        # basic networke we're learning
-        self.input_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="input")
+        self.state_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="input")
+        self.actions_t = tf.placeholder(tf.int32, shape=(None, 1), name="actions")
+        self.rewards_t = tf.placeholder(tf.float32, shape=(None, 1), name="Rewards")
+        self.next_state_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="next_input")
 
-        # second net, we use to make a forecasts.
-        self.next_input_t = tf.placeholder(tf.float32, shape=(None, self.input_len), name="next_input")
-
-        self.qvals_t = self._make_network(self.input_t, is_trainable=True)
-        self.next_qvals_t = self._make_network(self.next_input_t, is_trainable=False)
+        self.qvals_t = self._make_network(self.state_t, is_trainable=True)
+        self.next_qvals_t = self._make_network(self.next_state_t, is_trainable=False)
+        self.loss_t = self._make_loss()
 
     def __str__(self):
         return """DQN: input={input_len}, output={output_len}, batch={batch_size}
@@ -24,7 +25,7 @@ class DQN:
     next_input_t={next_input_t}
     next_qvals_t={next_qvals_t}
         """.format(input_len=self.input_len, output_len=self.output_len, batch_size=self.batch_size,
-                   input_t=self.input_t, next_input_t=self.next_input_t,
+                   input_t=self.state_t, next_input_t=self.next_state_t,
                    qvals_t=self.qvals_t, next_qvals_t=self.next_qvals_t)
 
     def calc_qvals(self, state):
@@ -32,7 +33,7 @@ class DQN:
         if dims == 1:
             state = [state]
         qvals, = tf.get_default_session().run([self.next_qvals_t], feed_dict={
-            self.next_input_t: state
+            self.next_state_t: state
         })
         if dims == 1:
             return qvals[0]
@@ -40,6 +41,14 @@ class DQN:
 
     def _make_network(self, input_tensor, is_trainable):
         raise NotImplementedError
+
+    def _make_loss(self):
+        # make one-hot mask from actions
+        with tf.name_scope("loss"):
+            mask_t = tf.one_hot(self.actions_t, self.output_len, on_value=1, off_value=0, dtype=tf.int32)
+            max_reward_t = tf.reduce_max(self.next_qvals_t, reduction_indices=1, keep_dims=True)
+            qbellman_t = self.rewards_t * mask_t + max_reward_t * mask_t * self.gamma_t
+            return tf.nn.l2_loss(self.qvals_t * mask_t - qbellman_t)
 
 
 class DenseDQN(DQN):
@@ -93,3 +102,4 @@ class DenseDQN(DQN):
             layer_output = tf.identity(v, "out")
 
         return layer_output
+
